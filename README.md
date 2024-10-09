@@ -11,7 +11,7 @@ Ao executar o código, é necessário passar três argumentos obrigatórios na l
    O segundo argumento é a região onde o bucket S3 está localizado. Exemplo de regiões AWS: `us-east-1`, `sa-east-1`, etc.
 
 3. Diretório Raiz (`rootDir`):
-   O terceiro argumento é o caminho para o diretório local onde os arquivos que devem ser sincronizados estão localizados.
+   O terceiro argumento é o caminho para o diretório local onde os arquivos que devem ser sincronizados estão localizados. O caminho do diretório _deve ser relativo_ ao diretório onde o comando está sendo executado.
 
 ## Exemplo de execução:
 
@@ -71,3 +71,7 @@ Neste exemplo:
 - O código não trata de padrões complexos, então o comportamento padrão é comparar exatamente o caminho do arquivo com as entradas no `.syncignore`.
 
 Com essas configurações e informações, o código realiza o upload dos arquivos para o bucket S3, ignorando aqueles que seguem os padrões definidos no `.syncignore`.
+
+## Gerar Novos Executáveis
+
+Para gerar novos executáveis para Windows e Linux, deve ser utilizado o comando `make compile`, conforme descrito no `Makefile`.
