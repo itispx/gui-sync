@@ -5,7 +5,7 @@ run-container:
 	docker run --name gui-sync-container gui-sync
 
 copy-build:
-	docker cp gui-sync-container:/build build
+	docker cp gui-sync-container:/build/. build/
 
 clear-container:
 	docker rm gui-sync-container
