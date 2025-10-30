@@ -165,9 +165,9 @@ func TestIntegrationS3Upload(t *testing.T) {
 	}
 
 	uploadedKeys := make([]string, 0)
-	// defer func() {
-	// 	cleanupS3Objects(t, client, uploadedKeys)
-	// }()
+	defer func() {
+		cleanupS3Objects(t, client, uploadedKeys)
+	}()
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -269,10 +269,10 @@ func TestIntegration50GBUpload(t *testing.T) {
 		float64(size50GB)/(1024*1024)/uploadDuration.Seconds())
 
 	// Cleanup
-	// defer func() {
-	// 	t.Logf("Cleaning up 50GB test file from S3...")
-	// 	cleanupS3Objects(t, client, []string{filename})
-	// }()
+	defer func() {
+		t.Logf("Cleaning up 50GB test file from S3...")
+		cleanupS3Objects(t, client, []string{filename})
+	}()
 
 	// Verify file exists on S3
 	headOutput, err := client.HeadObject(&s3.HeadObjectInput{
@@ -315,9 +315,9 @@ func TestIntegrationMultipleFilesUpload(t *testing.T) {
 	}
 
 	uploadedKeys := make([]string, 0)
-	// defer func() {
-	// 	cleanupS3Objects(t, client, uploadedKeys)
-	// }()
+	defer func() {
+		cleanupS3Objects(t, client, uploadedKeys)
+	}()
 
 	t.Logf("Creating and uploading %d files...", len(files))
 	startTotal := time.Now()
@@ -367,7 +367,7 @@ func TestIntegrationFileChangedDetection(t *testing.T) {
 	content := "initial content"
 	filePath := createTempFile(t, tempDir, filename, content)
 
-	// defer cleanupS3Objects(t, client, []string{filename})
+	defer cleanupS3Objects(t, client, []string{filename})
 
 	// Upload initial file
 	_, err := uploadFileS3(client, sess, filename, filePath, int64(len(content)))
