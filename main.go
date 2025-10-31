@@ -32,37 +32,75 @@ var (
 )
 
 const (
-	// Files larger than this threshold will use multipart upload
-	multipartThreshold = 100 * 1024 * 1024 // 100 MB
-	// Size of each part in multipart upload - increased for stability
-	partSize = 50 * 1024 * 1024 // 50 MB (larger parts = fewer requests)
-	// Number of files to upload concurrently
-	uploadWorkers = 5
-	// Number of parts to upload concurrently per file - reduced for stability
-	partConcurrency = 3 // Reduced from 10 to 3
+	multipartThreshold = 100 * 1024 * 1024
+	partSize           = 50 * 1024 * 1024
+	uploadWorkers      = 5
+	partConcurrency    = 3
 )
 
 func main() {
-	if len(os.Args) < 4 {
-		log.Fatalln("not enough arguments.")
+	fmt.Println("=== Sincronizador S3 ===")
+
+	execPath, err := os.Executable()
+	if err == nil {
+		execName := filepath.Base(execPath)
+		ignorePatterns = append(ignorePatterns, execName)
+		fmt.Printf("✓ Executável será ignorado: %s\n\n", execName)
 	}
 
-	bucketName = os.Args[1]
-	region = os.Args[2]
-	rootDir = os.Args[3]
-	cronSchedule := os.Args[4]
+	reader := bufio.NewReader(os.Stdin)
 
-	err := loadSyncIgnoreFile()
+	fmt.Print("Digite o nome do bucket S3: ")
+	bucketName, _ = reader.ReadString('\n')
+	bucketName = strings.TrimSpace(bucketName)
+	if bucketName == "" {
+		log.Fatalln("Nome do bucket não pode estar vazio.")
+	}
+
+	fmt.Print("Digite a região AWS (ex: us-east-1): ")
+	region, _ = reader.ReadString('\n')
+	region = strings.TrimSpace(region)
+	if region == "" {
+		log.Fatalln("Região não pode estar vazia.")
+	}
+
+	fmt.Print("Digite o caminho do diretório a ser sincronizado: ")
+	rootDir, _ = reader.ReadString('\n')
+	rootDir = strings.TrimSpace(rootDir)
+	if rootDir == "" {
+		log.Fatalln("Diretório não pode estar vazio.")
+	}
+
+	if _, err := os.Stat(rootDir); os.IsNotExist(err) {
+		log.Fatalf("Diretório não existe: %s", rootDir)
+	}
+
+	fmt.Print("Digite o agendamento cron (ex: */5 * * * * para cada 5 minutos): ")
+	cronSchedule, _ := reader.ReadString('\n')
+	cronSchedule = strings.TrimSpace(cronSchedule)
+	if cronSchedule == "" {
+		log.Fatalln("Agendamento cron não pode estar vazio.")
+	}
+
+	fmt.Println("\n--- Configurações ---")
+	fmt.Printf("Bucket S3: %s\n", bucketName)
+	fmt.Printf("Região AWS: %s\n", region)
+	fmt.Printf("Diretório: %s\n", rootDir)
+	fmt.Printf("Sincronização: %s\n", cronSchedule)
+	fmt.Println("---------------------")
+
+	err = loadSyncIgnoreFile()
 	if err != nil {
-		log.Fatalf("failed to load .syncignore file: %v", err)
+		log.Fatalf("❌ Falha ao carregar arquivo .syncignore: %v", err)
 	}
 
-	// Create session with retry configuration
+	fmt.Println("Conectando ao AWS S3...")
+
 	sess, err := session.NewSession(&aws.Config{
 		Region:     aws.String(region),
-		MaxRetries: aws.Int(10), // Increase retries
+		MaxRetries: aws.Int(10),
 		HTTPClient: &http.Client{
-			Timeout: 300 * time.Second, // 5 minute timeout per request
+			Timeout: 300 * time.Second,
 			Transport: &http.Transport{
 				MaxIdleConns:        100,
 				MaxIdleConnsPerHost: 100,
@@ -72,13 +110,14 @@ func main() {
 		},
 	})
 	if err != nil {
-		log.Fatalf("failed to create AWS session: %v", err)
+		log.Fatalf("❌ Falha ao criar sessão AWS: %v", err)
 	}
 
-	// Add retry handlers
+	fmt.Println("✓ Conectado ao AWS S3")
+
 	sess.Handlers.Retry.PushBack(func(r *request.Request) {
-		if r.Error != nil {
-			log.Printf("Retry attempt %d for %s: %v", r.RetryCount, r.Operation.Name, r.Error)
+		if r.Error != nil && r.RetryCount > 3 {
+			log.Printf("⚠ Tentativa %d para %s", r.RetryCount, r.Operation.Name)
 		}
 	})
 
@@ -88,28 +127,30 @@ func main() {
 }
 
 func startScheduler(s3Client s3iface.S3API, sess *session.Session, cronSchedule string) {
+	fmt.Println("🔄 Iniciando primeira sincronização...")
 	err := syncDirectoryWithS3(s3Client, sess, rootDir)
 	if err != nil {
-		log.Printf("Sync failed: %v", err)
+		log.Printf("❌ Sincronização falhou: %v", err)
 	} else {
-		fmt.Println("Sync completed successfully.")
+		fmt.Println("✓ Sincronização inicial concluída")
 	}
 
 	c := cron.New()
 	_, err = c.AddFunc(cronSchedule, func() {
-		fmt.Println("Running sync...")
+		fmt.Printf("\n🔄 [%s] Sincronizando...\n", time.Now().Format("15:04:05"))
 		err := syncDirectoryWithS3(s3Client, sess, rootDir)
 		if err != nil {
-			log.Printf("Sync failed: %v", err)
+			log.Printf("❌ Sincronização falhou: %v", err)
 		} else {
-			fmt.Println("Sync completed successfully.")
+			fmt.Printf("✓ [%s] Sincronização concluída\n", time.Now().Format("15:04:05"))
 		}
 	})
 	if err != nil {
-		log.Fatalf("Invalid cron schedule: %v", err)
+		log.Fatalf("❌ Agendamento cron inválido: %v", err)
 	}
 
-	fmt.Printf("Scheduler started with cron schedule: %s\n", cronSchedule)
+	fmt.Printf("⏰ Agendador ativo (executa %s)\n", cronSchedule)
+	fmt.Println("Pressione Ctrl+C para parar")
 	c.Start()
 
 	select {}
@@ -146,10 +187,11 @@ func uploadDirectoryToS3(s3Client s3iface.S3API, sess *session.Session, root str
 				size, err := uploadFileS3(s3Client, sess, task.s3Key, task.path, task.fileSize)
 				if err != nil {
 					errorMutex.Lock()
-					uploadErrors = append(uploadErrors, fmt.Errorf("failed to upload %s: %v", task.path, err))
+					uploadErrors = append(uploadErrors, fmt.Errorf("falha ao fazer upload de %s: %v", task.path, err))
 					errorMutex.Unlock()
+					log.Printf("  ❌ %s - %v", task.relPath, err)
 				} else {
-					fmt.Printf("[Worker %d] %s uploaded (%d bytes)\n", workerID, task.path, size)
+					fmt.Printf("  ✓ %s (%d bytes)\n", task.relPath, size)
 				}
 			}
 		}(i)
@@ -193,12 +235,11 @@ func uploadDirectoryToS3(s3Client s3iface.S3API, sess *session.Session, root str
 				fileSize: info.Size(),
 			}
 		} else {
-			fmt.Printf("%s is up-to-date, skipping upload.\n", path)
+			fmt.Printf("  ⏭ %s (sincronizado)\n", relPath)
 		}
 		return nil
 	})
 
-	// Close tasks channel and wait for workers to finish
 	close(tasks)
 	wg.Wait()
 
@@ -206,9 +247,8 @@ func uploadDirectoryToS3(s3Client s3iface.S3API, sess *session.Session, root str
 		return err
 	}
 
-	// Check if any uploads failed
 	if len(uploadErrors) > 0 {
-		return fmt.Errorf("upload errors occurred: %v", uploadErrors)
+		return fmt.Errorf("erros de upload ocorreram: %v", uploadErrors)
 	}
 
 	return nil
@@ -247,14 +287,14 @@ func deleteRemovedFilesFromS3(s3Client s3iface.S3API, root string) error {
 					Key:    obj.Key,
 				})
 				if err == nil {
-					fmt.Printf("%s deleted from S3\n", *obj.Key)
+					fmt.Printf("  🗑 %s (removido do S3)\n", *obj.Key)
 				}
 			}
 		}
 		return true
 	})
 	if err != nil {
-		return fmt.Errorf("failed to delete files from S3: %v", err)
+		return fmt.Errorf("falha ao deletar arquivos do S3: %v", err)
 	}
 
 	return nil
@@ -269,22 +309,18 @@ func fileChangedOnS3(s3Client s3iface.S3API, s3Key, localPath string) (bool, err
 		if aerr, ok := err.(awserr.RequestFailure); ok && aerr.StatusCode() == http.StatusNotFound {
 			return true, nil
 		}
-		return false, fmt.Errorf("error checking S3 object: %v", err)
+		return false, fmt.Errorf("erro ao verificar objeto S3: %v", err)
 	}
 
-	// Get local file info
 	fileInfo, err := os.Stat(localPath)
 	if err != nil {
-		return false, fmt.Errorf("failed to stat local file: %v", err)
+		return false, fmt.Errorf("falha ao obter informações do arquivo local: %v", err)
 	}
 
-	// First check: compare file sizes
 	if *headObjectOutput.ContentLength != fileInfo.Size() {
 		return true, nil
 	}
 
-	// Second check: compare last modified times
-	// If S3 file is newer or same age as local file, skip upload
 	if headObjectOutput.LastModified == nil {
 		return true, nil
 	}
@@ -293,24 +329,18 @@ func fileChangedOnS3(s3Client s3iface.S3API, s3Key, localPath string) (bool, err
 		return false, nil
 	}
 
-	// For large files, skip expensive MD5 calculation
 	if fileInfo.Size() > multipartThreshold {
-		// Rely on size + modification time for large files
 		return fileInfo.ModTime().After(*headObjectOutput.LastModified), nil
 	}
 
-	// For smaller files, do MD5 comparison
 	localFileHash, err := calculateMD5(localPath)
 	if err != nil {
-		return false, fmt.Errorf("error calculating local file hash: %v", err)
+		return false, fmt.Errorf("erro ao calcular hash do arquivo local: %v", err)
 	}
 
 	s3ETag := strings.Trim(*headObjectOutput.ETag, "\"")
 
-	// ETags for multipart uploads contain a dash (e.g., "abc123-5")
-	// In this case, we can't do MD5 comparison
 	if strings.Contains(s3ETag, "-") {
-		// Multipart upload ETag - rely on size and time
 		return fileInfo.ModTime().After(*headObjectOutput.LastModified), nil
 	}
 
@@ -320,14 +350,14 @@ func fileChangedOnS3(s3Client s3iface.S3API, s3Key, localPath string) (bool, err
 func calculateMD5(filePath string) (string, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
-		return "", fmt.Errorf("failed to open file: %v", err)
+		return "", fmt.Errorf("falha ao abrir arquivo: %v", err)
 	}
 	defer file.Close()
 
 	hash := md5.New()
 	_, err = io.Copy(hash, file)
 	if err != nil {
-		return "", fmt.Errorf("failed to hash file: %v", err)
+		return "", fmt.Errorf("falha ao gerar hash do arquivo: %v", err)
 	}
 
 	return fmt.Sprintf("%x", hash.Sum(nil)), nil
@@ -337,7 +367,6 @@ func loadSyncIgnoreFile() error {
 	file, err := os.Open(filepath.Join(rootDir, ".syncignore"))
 	if err != nil {
 		if os.IsNotExist(err) {
-			fmt.Printf("no .syncignore file found, proceeding without ignoring files...\n")
 			return nil
 		}
 		return err
@@ -356,17 +385,23 @@ func loadSyncIgnoreFile() error {
 	}
 
 	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("error reading .syncignore file: %v", err)
+		return fmt.Errorf("erro ao ler arquivo .syncignore: %v", err)
 	}
 
-	fmt.Printf("loaded ignore patterns: %v\n", ignorePatterns)
+	fmt.Printf("✓ Arquivo .syncignore carregado (%d padrões)\n", len(ignorePatterns))
 
 	return nil
 }
 
 func shouldIgnore(path string) bool {
+	fileName := filepath.Base(path)
+
 	for _, pattern := range ignorePatterns {
 		if pattern == path {
+			return true
+		}
+
+		if pattern == fileName {
 			return true
 		}
 	}
@@ -377,34 +412,31 @@ func shouldIgnore(path string) bool {
 func uploadFileS3(s3Client s3iface.S3API, sess *session.Session, s3Key string, filePath string, fileSize int64) (int64, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
-		return 0, fmt.Errorf("failed to open file: %v", err)
+		return 0, fmt.Errorf("falha ao abrir arquivo: %v", err)
 	}
 	defer file.Close()
 
-	// Use multipart upload for large files
 	if fileSize > multipartThreshold {
-		fmt.Printf("Using multipart upload for %s (size: %d bytes)\n", filePath, fileSize)
+		fmt.Printf("  📦 Upload multipart: %s (%.2f MB)\n", filepath.Base(filePath), float64(fileSize)/(1024*1024))
 		return uploadMultipart(sess, s3Key, file, fileSize)
 	}
 
-	// Use standard upload for smaller files
 	_, err = s3Client.PutObject(&s3.PutObjectInput{
 		Bucket: aws.String(bucketName),
 		Key:    aws.String(s3Key),
 		Body:   file,
 	})
 	if err != nil {
-		return 0, fmt.Errorf("failed to upload file to S3: %v", err)
+		return 0, fmt.Errorf("falha ao fazer upload do arquivo para S3: %v", err)
 	}
 
 	return fileSize, nil
 }
 
 func uploadMultipart(sess *session.Session, s3Key string, file *os.File, fileSize int64) (int64, error) {
-	// Reset file pointer to beginning
 	_, err := file.Seek(0, 0)
 	if err != nil {
-		return 0, fmt.Errorf("failed to reset file pointer: %v", err)
+		return 0, fmt.Errorf("falha ao resetar ponteiro do arquivo: %v", err)
 	}
 
 	uploader := s3manager.NewUploader(sess, func(u *s3manager.Uploader) {
@@ -414,14 +446,13 @@ func uploadMultipart(sess *session.Session, s3Key string, file *os.File, fileSiz
 		u.LeavePartsOnError = false
 	})
 
-	// Upload with retries
 	_, err = uploader.Upload(&s3manager.UploadInput{
 		Bucket: aws.String(bucketName),
 		Key:    aws.String(s3Key),
 		Body:   file,
 	})
 	if err != nil {
-		return 0, fmt.Errorf("failed to upload file via multipart: %v", err)
+		return 0, fmt.Errorf("falha ao fazer upload do arquivo via multipart: %v", err)
 	}
 
 	return fileSize, nil

@@ -2,89 +2,115 @@
 
 Gui Sync é uma ferramenta de sincronização de arquivos entre um diretório local e o Amazon S3. O sistema detecta automaticamente mudanças nos arquivos locais, realizando o upload apenas dos arquivos modificados, e remove arquivos do bucket que foram excluídos localmente. A ferramenta suporta agendamento de sincronização através de expressões cron e permite a geração de executáveis para Windows e Linux.
 
-## Argumentos Necessários
+# Como Usar
 
-Ao executar o código, é necessário passar quatro argumentos obrigatórios na linha de comando. A seguir, estão os argumentos que devem ser fornecidos ao executar o programa:
-
-1. **Nome do Bucket S3**: Este é o primeiro argumento e deve ser o nome do bucket no Amazon S3 para onde os arquivos serão enviados.
-
-2. **Região AWS**:O segundo argumento é a região onde o bucket S3 está localizado. Exemplos de regiões AWS: `us-east-1`, `sa-east-1`, etc.
-
-3. **Diretório Raiz**: O terceiro argumento é o caminho para o diretório local onde os arquivos que devem ser sincronizados estão localizados. O caminho do diretório deve ser relativo ao diretório onde o comando está sendo executado.
-
-4. **Cron Schedule**: O quarto argumento é uma expressão cron que define o agendamento para execução automática da sincronização. A aplicação permanecerá em execução e executará o processo de sincronização de acordo com o cron especificado.
-
-### Exemplo de execução:
+Ao executar o programa, ele solicitará interativamente as informações necessárias:
 
 ```bash
-$ gui-sync <nome-do-bucket> <região-aws> <caminho-diretório-raiz> <cron-schedule>
+$ ./gui-sync
 ```
 
-### Exemplos práticos:
+## Informações Solicitadas
 
-```bash
-# Executar a cada 5 minutos
+O programa solicitará as seguintes informações, uma de cada vez:
 
-$ gui-sync meu-bucket sa-east-1 /home/usuario/meus-arquivos "*/5 * * * *"
+1. **Nome do Bucket S3:** Nome do bucket no Amazon S3 para onde os arquivos serão enviados.
 
-# Executar todos os dias à meia-noite
+- Exemplo: `meu-bucket-s3`
 
-$ gui-sync meu-bucket us-east-1 /path/to/dir "0 0 * * *"
-```
+2. **Região AWS:** Região onde o bucket S3 está localizado.
+
+- Exemplos: `us-east-1`, `sa-east-1`, `us-west-2`
+
+3. **Caminho do Diretório:** Caminho para o diretório local que será sincronizado.
+
+- Exemplos: /home/usuario/meus-arquivos, . (diretório atual), C:\Users\usuario\documentos
+
+4. **Agendamento Cron:** Expressão cron que define a frequência da sincronização automática.
+
+- Exemplos: _/5 _ \* \* _ (a cada 5 minutos), 0 0 _ \* \* (diariamente à meia-noite)
+
+# Funcionalidades
+
+## Sincronização Inteligente
+
+- **Upload Incremental:** Apenas arquivos novos ou modificados são enviados
+- **Verificação de Mudanças:** Compara tamanho, data de modificação e hash MD5
+- **Upload Multipart:** Arquivos maiores que 100MB usam upload multipart automático
+- **Exclusão Automática:** Remove do S3 arquivos que foram deletados localmente
+
+## Ignorar Arquivos
+
+O próprio executável é automaticamente ignorado durante a sincronização, evitando que seja enviado para o S3.
 
 ## Arquivo `.syncignore`
 
-O arquivo `.syncignore` é utilizado para definir padrões de arquivos ou diretórios que devem ser ignorados durante o processo de upload para o S3.
-
-Ele funciona de maneira semelhante ao `.gitignore`, permitindo que você especifique arquivos ou diretórios que não devem ser incluídos na sincronização.
+O arquivo `.syncignore` é utilizado para definir padrões de arquivos ou diretórios que devem ser ignorados durante o processo de upload para o S3. Ele funciona de maneira semelhante ao `.gitignore`.
 
 ### Estrutura do .syncignore
 
-- Cada linha do arquivo `.syncignore` pode conter um padrão de caminho.
-- Comentários podem ser incluídos no arquivo começando a linha com `#`.
-- Linhas em branco serão ignoradas.
-
-Exemplo de um arquivo `.syncignore`:
-
-```bash
-# Ignorar arquivos temporários
-*.tmp
-
-# Ignorar diretório 'node_modules'
-node_modules/
-
-# Ignorar arquivo específico
-config.json
-```
-
-### Comportamento do `.syncignore`
-
-1. Se o arquivo `.syncignore` não for encontrado no diretório raiz especificado, uma mensagem será exibida: `no .syncignore file found, proceeding without ignoring files....`
-
-2. Se o arquivo for encontrado, os padrões especificados no arquivo serão carregados e utilizados para ignorar arquivos durante o processo de upload.
-
-3. Arquivos ou diretórios que correspondam aos padrões listados no `.syncignore` não serão enviados para o bucket S3.
+- Cada linha do arquivo `.syncignore` pode conter um padrão de caminho
+- Comentários podem ser incluídos começando a linha com `#`
+- Linhas em branco são ignoradas
+- O arquivo deve estar localizado no diretório raiz especificado
 
 ## Agendamento com Cron
 
-A aplicação aceita um cron-like schedule como parâmetro para definir quando a sincronização deve ser executada automaticamente. A aplicação permanecerá em execução e sincronizará os arquivos com base na expressão cron fornecida.
+A aplicação utiliza expressões cron para definir quando a sincronização deve ser executada automaticamente. Após a primeira sincronização, o programa permanece em execução e sincroniza os arquivos com base na expressão cron fornecida.
 
-### Exemplos de Expressões Cron:
+### Formato da Expressão Cron
 
-| Expressão     | Descrição                           |
-| ------------- | ----------------------------------- |
-| `*/5 * * * *` | Executar a cada 5 minutos           |
-| `0 0 * * *`   | Executar todos os dias à meia-noite |
-| `0 9 * * 1-5` | Executar às 9h de segunda a sexta   |
+```
+┌───────────── minuto (0 - 59)
+│ ┌───────────── hora (0 - 23)
+│ │ ┌───────────── dia do mês (1 - 31)
+│ │ │ ┌───────────── mês (1 - 12)
+│ │ │ │ ┌───────────── dia da semana (0 - 6) (Domingo=0)
+│ │ │ │ │
+│ │ │ │ │
+* * * * *
+```
 
-## Gerar Novos Executáveis
+### Exemplos de Expressões Cron
 
-Para gerar novos executáveis compatíveis com Windows e Linux, utilize o comando `make compile`, conforme descrito no arquivo Makefile presente no projeto. O Makefile contém as instruções necessárias para compilar o código corretamente em ambas as plataformas, garantindo que os binários gerados funcionem sem problemas.
+| Expressão      | Descrição                             |
+| -------------- | ------------------------------------- |
+| `*/1 * * * *`  | Executar a cada 1 minuto              |
+| `*/5 * * * *`  | Executar a cada 5 minutos             |
+| `*/15 * * * *` | Executar a cada 15 minutos            |
+| `0 * * * *`    | Executar a cada hora (início da hora) |
+| `0 0 * * *`    | Executar todos os dias à meia-noite   |
+| `0 9 * * 1-5`  | Executar às 9h de segunda a sexta     |
+| `0 12 * * *`   | Executar todos os dias ao meio-dia    |
+| `0 0 1 * *`    | Executar no primeiro dia de cada mês  |
+| `0 0 * * 0`    | Executar todo domingo à meia-noite    |
 
-## Considerações Finais
+### Gerar Novos Executáveis
 
-- A aplicação é compatível com **Windows** e **Linux**.
+Para gerar novos executáveis compatíveis com Windows e Linux, utilize o comando `make compile`, conforme descrito no arquivo Makefile presente no projeto.
 
-- O processo de sincronização realiza upload de novos arquivos e remoção de arquivos que foram excluídos localmente.
+```bash
+$ make compile
+```
 
-- Certifique-se de que a expressão cron fornecida esteja correta para evitar problemas de agendamento.
+O Makefile contém as instruções necessárias para compilar o código corretamente em ambas as plataformas, garantindo que os binários gerados funcionem sem problemas.
+
+# Características Técnicas
+
+- **Upload Concorrente:** Até 5 arquivos simultaneamente
+- **Threshold Multipart:** 100 MB
+- **Tamanho de Parte:** 50 MB
+- **Concorrência de Partes:** 3 partes simultâneas
+- **Retries Automáticos:** Até 10 tentativas
+- **Timeout por Request:** 5 minutos
+- **Compatibilidade:** Windows e Linux
+
+# Requisitos
+
+- Go 1.16 ou superior (para compilação)
+- Credenciais AWS válidas
+- Permissões necessárias no bucket S3:
+  - `s3:PutObject`
+  - `s3:GetObject`
+  - `s3:DeleteObject`
+  - `s3:ListBucket`
